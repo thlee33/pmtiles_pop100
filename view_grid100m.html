@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>전국 100M 격자 인구 3D 단계구분도</title>
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
+<script src="https://unpkg.com/pmtiles@3.2.1/dist/pmtiles.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Malgun Gothic', sans-serif; background: #f5f5f0; }
+  #map { width: 100vw; height: 100vh; }
+
+  #panel {
+    position: absolute; top: 12px; left: 12px; z-index: 10;
+    background: rgba(255,255,255,0.94); color: #333;
+    border-radius: 10px; padding: 16px 18px; min-width: 240px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.18);
+    border: 1px solid rgba(0,0,0,0.08);
+  }
+  #panel h3 { font-size: 14px; margin-bottom: 12px; color: #2a5298; font-weight: bold; }
+
+  .ctrl-row { display: flex; align-items: center; gap: 8px; margin-bottom: 9px; font-size: 12px; }
+  .ctrl-row label { width: 72px; color: #666; }
+  .ctrl-row input[type=range] { flex: 1; accent-color: #2a5298; }
+  .ctrl-row span { width: 38px; text-align: right; font-size: 11px; color: #333; font-weight: bold; }
+  .ctrl-divider { border: none; border-top: 1px solid #e0e0e0; margin: 8px 0; }
+  .hint { font-size: 10px; color: #999; margin-top: 2px; }
+
+  /* 데이터 소스 배지 */
+  #source-badge {
+    display: inline-block; margin-top: 8px;
+    font-size: 10px; padding: 3px 8px; border-radius: 10px;
+    font-weight: bold; transition: all 0.3s;
+  }
+  #source-badge.geojson { background: #e8f4fd; color: #2a5298; border: 1px solid #b3d7f0; }
+  #source-badge.pmtiles { background: #edf7ee; color: #1a7f37; border: 1px solid #a8ddb0; }
+
+  #legend {
+    position: absolute; bottom: 30px; left: 12px; z-index: 10;
+    background: rgba(255,255,255,0.94); color: #333;
+    border-radius: 8px; padding: 12px 16px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.18); font-size: 12px;
+    border: 1px solid rgba(0,0,0,0.08);
+  }
+  #legend h4 { margin-bottom: 8px; font-size: 12px; color: #2a5298; font-weight: bold; }
+  .legend-bar {
+    width: 190px; height: 14px; border-radius: 3px;
+    background: linear-gradient(to right,
+      #313695, #4575b4, #74add1, #abd9e9,
+      #ffffbf, #fee090, #fdae61, #f46d43, #d73027, #a50026);
+    margin-bottom: 4px;
+  }
+  .legend-labels { display: flex; justify-content: space-between; font-size: 10px; color: #888; }
+  .legend-3d { margin-top: 8px; font-size: 10px; color: #888; }
+  .legend-3d span { color: #2a5298; font-weight: bold; }
+
+  #info {
+    position: absolute; bottom: 30px; right: 12px; z-index: 10;
+    background: rgba(255,255,255,0.96); color: #333;
+    border-radius: 8px; padding: 12px 16px; font-size: 12px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.18); min-width: 170px;
+    display: none; border: 1px solid rgba(0,0,0,0.08);
+  }
+  #info .grid-id { font-size: 10px; color: #2a5298; margin-bottom: 4px; }
+  #info .pop-val { font-size: 20px; font-weight: bold; color: #d73027; }
+  #info .pop-sub { font-size: 11px; color: #888; margin-top: 4px; }
+
+  #zoom-badge {
+    position: absolute; top: 12px; right: 52px; z-index: 10;
+    background: rgba(255,255,255,0.92); color: #666;
+    border-radius: 6px; padding: 5px 10px; font-size: 11px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+    border: 1px solid rgba(0,0,0,0.08);
+  }
+  .maplibregl-ctrl-attrib { font-size: 9px !important; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+
+<div id="panel">
+  <h3>🗺 전국 100M 격자 인구 3D (2024)</h3>
+  <div class="ctrl-row">
+    <label>불투명도</label>
+    <input type="range" id="opacity" min="0.1" max="1" step="0.05" value="0.6">
+    <span id="opacityVal">0.60</span>
+  </div>
+  <div class="ctrl-row">
+    <label>최대값(명)</label>
+    <input type="range" id="maxPop" min="50" max="5000" step="50" value="1000">
+    <span id="maxPopVal">1000</span>
+  </div>
+  <hr class="ctrl-divider">
+  <div class="ctrl-row">
+    <label>기울기</label>
+    <input type="range" id="pitch" min="0" max="85" step="5" value="55">
+    <span id="pitchVal">55°</span>
+  </div>
+  <div class="ctrl-row">
+    <label>회전</label>
+    <input type="range" id="bearing" min="-180" max="180" step="5" value="-20">
+    <span id="bearingVal">-20°</span>
+  </div>
+  <div class="hint">💡 Ctrl+드래그: 기울기·회전 조절</div>
+  <div id="source-badge" class="geojson">📦 GeoJSON (인구 ≥1000명)</div>
+</div>
+
+<div id="legend">
+  <h4>인구 (명/100m 격자)</h4>
+  <div class="legend-bar"></div>
+  <div class="legend-labels">
+    <span>1</span><span id="mid-label">500</span><span id="max-label">1000</span>
+  </div>
+  <div class="legend-3d">
+    🏙 기둥 높이 = 인구수 × 1m<br>
+    최대값 <span id="legend-max-h">1000</span>명 → <span id="legend-max-h2">1000</span>m
+  </div>
+  <div style="margin-top:6px; font-size:10px; color:#bbb;">
+    ▪ 투명 = 인구 없음 (NULL)
+  </div>
+</div>
+
+<div id="info">
+  <div class="grid-id" id="info-id">격자 코드</div>
+  <div class="pop-val" id="info-total">-</div>
+  <div class="pop-sub" id="info-sub">남: - / 여: -</div>
+</div>
+
+<div id="zoom-badge">zoom: <span id="zoomVal">-</span></div>
+
+<script>
+// ─── PMTiles 프로토콜 등록 ─────────────────────────────
+const protocol = new pmtiles.Protocol();
+maplibregl.addProtocol("pmtiles", protocol.tile.bind(protocol));
+
+// ─── 설정 상수 ───────────────────────────────────────
+const PMTILES_URL   = 'pmtiles://https://pub-1f62777df87943368e99da2bcca66f5c.r2.dev/grid100m_pop_2024.pmtiles';
+const GEOJSON_URL   = 'grid100m_pop1000.geojson';  // 로컬 파일 (python -m http.server 와 같은 폴더)
+const ZOOM_SWITCH   = 10;   // 이 줌 이상이면 PMTiles, 미만이면 GeoJSON
+
+// ─── 상태 변수 ───────────────────────────────────────
+let currentMaxPop = 1000;
+let currentOpacity = 0.6;
+
+// ─── 지도 초기화 ─────────────────────────────────────
+const map = new maplibregl.Map({
+  container: 'map',
+  style: {
+    version: 8,
+    glyphs: "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
+    sources: {
+      carto: {
+        type: "raster",
+        tiles: [
+          "https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png",
+          "https://b.basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png",
+          "https://c.basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png"
+        ],
+        tileSize: 256,
+        attribution: "© OpenStreetMap contributors © CARTO"
+      }
+    },
+    layers: [{ id: "carto-bg", type: "raster", source: "carto", minzoom: 0, maxzoom: 22 }]
+  },
+  center: [127.7, 36.3],
+  zoom: 7,
+  pitch: 55,
+  bearing: -20,
+  maxZoom: 18,
+  antialias: true
+});
+
+map.addControl(new maplibregl.NavigationControl(), 'top-right');
+
+// ─── 공통: 색상 표현식 ────────────────────────────────
+function buildColorExpr(maxPop) {
+  const val = ["to-number", ["get", "pop_total"], -1];
+  return [
+    "case",
+    ["<=", val, 0], "rgba(0,0,0,0)",   // 인구 없음 → 투명
+    [
+      "interpolate", ["linear"], val,
+      1,              "#313695",
+      maxPop * 0.05,  "#4575b4",
+      maxPop * 0.15,  "#74add1",
+      maxPop * 0.30,  "#abd9e9",
+      maxPop * 0.45,  "#ffffbf",
+      maxPop * 0.60,  "#fee090",
+      maxPop * 0.72,  "#fdae61",
+      maxPop * 0.85,  "#f46d43",
+      maxPop,         "#a50026"
+    ]
+  ];
+}
+
+// ─── 공통: 높이 표현식 (인구 1명 = 1m) ──────────────
+function buildHeightExpr(maxPop) {
+  const val = ["to-number", ["get", "pop_total"], -1];
+  return [
+    "case",
+    ["<=", val, 0], 0,
+    ["min", ["*", val, 1], maxPop]
+  ];
+}
+
+// ─── 레이어 페인트 속성 일괄 갱신 ────────────────────
+function updateLayerPaint(layerId, maxPop, opacity) {
+  if (!map.getLayer(layerId)) return;
+  map.setPaintProperty(layerId, 'fill-extrusion-color',   buildColorExpr(maxPop));
+  map.setPaintProperty(layerId, 'fill-extrusion-height',  buildHeightExpr(maxPop));
+  map.setPaintProperty(layerId, 'fill-extrusion-opacity', opacity);
+}
+
+// ─── 줌에 따른 레이어 전환 ────────────────────────────
+function syncLayers() {
+  const zoom = map.getZoom();
+  const usePMTiles = zoom >= ZOOM_SWITCH;
+
+  // GeoJSON 레이어: 소축척(줌 < ZOOM_SWITCH)에서만 보임
+  if (map.getLayer('grid-geojson')) {
+    map.setLayoutProperty('grid-geojson', 'visibility', usePMTiles ? 'none' : 'visible');
+  }
+  // PMTiles 레이어: 대축척(줌 >= ZOOM_SWITCH)에서만 보임
+  if (map.getLayer('grid-pmtiles')) {
+    map.setLayoutProperty('grid-pmtiles', 'visibility', usePMTiles ? 'visible' : 'none');
+  }
+
+  // 배지 업데이트
+  const badge = document.getElementById('source-badge');
+  if (usePMTiles) {
+    badge.className = 'pmtiles';
+    badge.textContent = '🗂 PMTiles (전체 격자)';
+  } else {
+    badge.className = 'geojson';
+    badge.textContent = '📦 GeoJSON (인구 ≥1000명)';
+  }
+}
+
+// ─── 지도 로드 후 소스·레이어 추가 ──────────────────
+map.on('load', () => {
+
+  // ── GeoJSON 소스 (인구 ≥1000, 소축척용) ──
+  map.addSource('grid-src-geojson', {
+    type: 'geojson',
+    data: GEOJSON_URL
+  });
+  map.addLayer({
+    id: 'grid-geojson',
+    type: 'fill-extrusion',
+    source: 'grid-src-geojson',
+    minzoom: 0,
+    maxzoom: ZOOM_SWITCH,
+    layout: { visibility: 'visible' },
+    paint: {
+      'fill-extrusion-color':             buildColorExpr(currentMaxPop),
+      'fill-extrusion-height':            buildHeightExpr(currentMaxPop),
+      'fill-extrusion-base':              0,
+      'fill-extrusion-opacity':           currentOpacity,
+      'fill-extrusion-vertical-gradient': true
+    }
+  });
+
+  // ── PMTiles 소스 (전체 격자, 대축척용) ──
+  map.addSource('grid-src-pmtiles', {
+    type: 'vector',
+    url: PMTILES_URL,
+    minzoom: 0
+  });
+  map.addLayer({
+    id: 'grid-pmtiles',
+    type: 'fill-extrusion',
+    source: 'grid-src-pmtiles',
+    'source-layer': 'grid100m_pop_2024',
+    minzoom: ZOOM_SWITCH,
+    layout: { visibility: 'none' },   // 초기에는 숨김 (zoom 7로 시작)
+    paint: {
+      'fill-extrusion-color':             buildColorExpr(currentMaxPop),
+      'fill-extrusion-height':            buildHeightExpr(currentMaxPop),
+      'fill-extrusion-base':              0,
+      'fill-extrusion-opacity':           currentOpacity,
+      'fill-extrusion-vertical-gradient': true
+    }
+  });
+
+  // 줌 변경 시 레이어 전환
+  map.on('zoom', () => {
+    document.getElementById('zoomVal').textContent = map.getZoom().toFixed(1);
+    syncLayers();
+  });
+  document.getElementById('zoomVal').textContent = map.getZoom().toFixed(1);
+  syncLayers();
+});
+
+// ─── 컨트롤: 불투명도 ────────────────────────────────
+document.getElementById('opacity').addEventListener('input', e => {
+  currentOpacity = parseFloat(e.target.value);
+  document.getElementById('opacityVal').textContent = currentOpacity.toFixed(2);
+  updateLayerPaint('grid-geojson',  currentMaxPop, currentOpacity);
+  updateLayerPaint('grid-pmtiles',  currentMaxPop, currentOpacity);
+});
+
+// ─── 컨트롤: 최대 인구값 ─────────────────────────────
+document.getElementById('maxPop').addEventListener('input', e => {
+  currentMaxPop = parseInt(e.target.value);
+  document.getElementById('maxPopVal').textContent    = currentMaxPop;
+  document.getElementById('max-label').textContent    = currentMaxPop;
+  document.getElementById('mid-label').textContent    = Math.round(currentMaxPop / 2);
+  document.getElementById('legend-max-h').textContent = currentMaxPop;
+  document.getElementById('legend-max-h2').textContent= currentMaxPop;
+  updateLayerPaint('grid-geojson',  currentMaxPop, currentOpacity);
+  updateLayerPaint('grid-pmtiles',  currentMaxPop, currentOpacity);
+});
+
+// ─── 컨트롤: 기울기 ──────────────────────────────────
+document.getElementById('pitch').addEventListener('input', e => {
+  const v = parseInt(e.target.value);
+  document.getElementById('pitchVal').textContent = v + '°';
+  map.easeTo({ pitch: v, duration: 200 });
+});
+
+// ─── 컨트롤: 회전 ────────────────────────────────────
+document.getElementById('bearing').addEventListener('input', e => {
+  const v = parseInt(e.target.value);
+  document.getElementById('bearingVal').textContent = v + '°';
+  map.easeTo({ bearing: v, duration: 200 });
+});
+
+// 마우스 드래그 시 슬라이더 동기화
+map.on('rotate', () => {
+  const b = Math.round(map.getBearing());
+  document.getElementById('bearing').value = b;
+  document.getElementById('bearingVal').textContent = b + '°';
+});
+map.on('pitch', () => {
+  const p = Math.round(map.getPitch());
+  document.getElementById('pitch').value = p;
+  document.getElementById('pitchVal').textContent = p + '°';
+});
+
+// ─── 클릭: 격자 정보 표시 ────────────────────────────
+function onGridClick(e) {
+  const props = e.features[0].properties;
+  const box = document.getElementById('info');
+  document.getElementById('info-id').textContent = props.grid_cd ?? '-';
+  const tot = Number(props.pop_total);
+  document.getElementById('info-total').textContent =
+    (tot > 0) ? `${tot.toLocaleString()} 명` : '인구 없음';
+  const m = Number(props.pop_male), f = Number(props.pop_female);
+  document.getElementById('info-sub').textContent =
+    `남: ${m > 0 ? m.toLocaleString() : '-'} / 여: ${f > 0 ? f.toLocaleString() : '-'}`;
+  box.style.display = 'block';
+}
+
+map.on('click', 'grid-geojson',  onGridClick);
+map.on('click', 'grid-pmtiles',  onGridClick);
+map.on('mouseenter', 'grid-geojson',  () => { map.getCanvas().style.cursor = 'pointer'; });
+map.on('mouseenter', 'grid-pmtiles',  () => { map.getCanvas().style.cursor = 'pointer'; });
+map.on('mouseleave', 'grid-geojson',  () => { map.getCanvas().style.cursor = ''; });
+map.on('mouseleave', 'grid-pmtiles',  () => { map.getCanvas().style.cursor = ''; });
+map.on('click', e => {
+  const f = map.queryRenderedFeatures(e.point, { layers: ['grid-geojson', 'grid-pmtiles'] });
+  if (!f.length) document.getElementById('info').style.display = 'none';
+});
+</script>
+</body>
+</html>
