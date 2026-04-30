@@ -164,9 +164,9 @@ const map = new maplibregl.Map({
     },
     layers: [{ id: "carto-bg", type: "raster", source: "carto", minzoom: 0, maxzoom: 22 }]
   },
-  center: [127.6, 35.8],
+  center: [127.5, 35.7],
   zoom: 8,
-  pitch: 50,
+  pitch: 45,
   bearing: 0,
   maxZoom: 18,
   antialias: true
@@ -174,36 +174,32 @@ const map = new maplibregl.Map({
 
 map.addControl(new maplibregl.NavigationControl(), 'top-right');
 
-// ─── 공통: 색상 표현식 ────────────────────────────────
+// ─── 공통: 색상 표현식 (인구 있는 격자만 — filter로 제외하므로 val > 0 보장) ──
 function buildColorExpr(maxPop) {
-  const val = ["to-number", ["get", "pop_total"], -1];
+  const val = ["to-number", ["get", "pop_total"], 0];
   return [
-    "case",
-    ["<=", val, 0], "rgba(0,0,0,0)",   // 인구 없음 → 투명
-    [
-      "interpolate", ["linear"], val,
-      1,              "#313695",
-      maxPop * 0.05,  "#4575b4",
-      maxPop * 0.15,  "#74add1",
-      maxPop * 0.30,  "#abd9e9",
-      maxPop * 0.45,  "#ffffbf",
-      maxPop * 0.60,  "#fee090",
-      maxPop * 0.72,  "#fdae61",
-      maxPop * 0.85,  "#f46d43",
-      maxPop,         "#a50026"
-    ]
+    "interpolate", ["linear"], val,
+    1,              "#313695",
+    maxPop * 0.05,  "#4575b4",
+    maxPop * 0.15,  "#74add1",
+    maxPop * 0.30,  "#abd9e9",
+    maxPop * 0.45,  "#ffffbf",
+    maxPop * 0.60,  "#fee090",
+    maxPop * 0.72,  "#fdae61",
+    maxPop * 0.85,  "#f46d43",
+    maxPop,         "#a50026"
   ];
 }
 
-// ─── 공통: 높이 표현식 (인구 1명 = 1m) ──────────────
+// ─── 공통: 높이 표현식 (인구 1명 = 1m, filter로 인구있는 격자만 들어옴) ──
 function buildHeightExpr(maxPop) {
-  const val = ["to-number", ["get", "pop_total"], -1];
-  return [
-    "case",
-    ["<=", val, 0], 0,
-    ["min", ["*", val, 1], maxPop]
-  ];
+  const val = ["to-number", ["get", "pop_total"], 0];
+  return ["min", ["*", val, 1], maxPop];
 }
+
+// ─── 인구 있는 격자만 표시하는 filter ────────────────
+// pop_total > 0 인 피처만 렌더링 → NULL(-1 포함) 격자는 아예 그리지 않음
+const POP_FILTER = [">", ["to-number", ["get", "pop_total"], -1], 0];
 
 // ─── 레이어 페인트 속성 일괄 갱신 ────────────────────
 function updateLayerPaint(layerId, maxPop, opacity) {
@@ -252,6 +248,7 @@ map.on('load', () => {
     source: 'grid-src-geojson',
     minzoom: 0,
     maxzoom: ZOOM_SWITCH,
+    filter: POP_FILTER,
     layout: { visibility: 'visible' },
     paint: {
       'fill-extrusion-color':             buildColorExpr(currentMaxPop),
@@ -274,6 +271,7 @@ map.on('load', () => {
     source: 'grid-src-pmtiles',
     'source-layer': 'grid100m_pop_2024',
     minzoom: ZOOM_SWITCH,
+    filter: POP_FILTER,
     layout: { visibility: 'none' },   // 초기에는 숨김 (zoom 7로 시작)
     paint: {
       'fill-extrusion-color':             buildColorExpr(currentMaxPop),
