@@ -7,7 +7,7 @@
 
 ---
 
-[![예시 화면](https://github.com/thlee33/pmtiles_pop100/image.png)]
+[!["예시 화면"](https://github.com/thlee33/pmtiles_pop100/image.png)]
 
 ---
 
